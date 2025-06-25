@@ -5,18 +5,17 @@ from datetime import datetime, time, timedelta
 from streamlit_calendar import calendar
 import uuid
 import os
-import random
 
 st.set_page_config(page_title="スケジュール帳", layout="wide")
 
 DATA_FILE = "schedule_data.csv"
 ACCOUNT_FILE = "accounts.json"
+VISIBLE_ACCOUNTS_FILE = "visible_accounts.json"
 
 COLOR_POOL = [
     "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b",
     "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
 ]
-
 ACCOUNT_COLORS = {}
 
 def load_accounts():
@@ -25,11 +24,8 @@ def load_accounts():
         with open(ACCOUNT_FILE, 'r') as f:
             accounts = json.load(f)
         assigned_colors = {}
-        used_colors = set()
         for i, acc in enumerate(accounts):
-            color = COLOR_POOL[i % len(COLOR_POOL)]
-            assigned_colors[acc['account']] = color
-            used_colors.add(color)
+            assigned_colors[acc['account']] = COLOR_POOL[i % len(COLOR_POOL)]
         ACCOUNT_COLORS = assigned_colors
         return accounts
     return []
@@ -37,6 +33,16 @@ def load_accounts():
 def save_accounts(accounts):
     with open(ACCOUNT_FILE, 'w') as f:
         json.dump(accounts, f, indent=2, ensure_ascii=False)
+
+def load_visible_accounts():
+    if os.path.exists(VISIBLE_ACCOUNTS_FILE):
+        with open(VISIBLE_ACCOUNTS_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_visible_accounts(data):
+    with open(VISIBLE_ACCOUNTS_FILE, 'w') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 def authenticate(username, password):
     accounts = load_accounts()
@@ -59,7 +65,7 @@ def register_account(new_account, new_username, new_password):
             return False
     accounts.append({"account": new_account, "username": new_username, "password": new_password})
     save_accounts(accounts)
-    load_accounts()  # 再読み込みして色も更新
+    load_accounts()
     return True
 
 def load_schedule():
@@ -116,7 +122,11 @@ if not st.session_state.logged_in:
                 st.session_state.logged_in = True
                 st.session_state.username = username
                 st.session_state.account = account
-                st.session_state.visible_accounts = [account]
+
+                # 表示アカウントの永続設定読み込み
+                vis_accs = load_visible_accounts()
+                st.session_state.visible_accounts = vis_accs.get(account, [account])
+
                 st.success(f"ようこそ、{account} さん")
                 st.rerun()
             else:
@@ -131,7 +141,6 @@ if not st.session_state.logged_in:
                 st.success("アカウントを作成しました。ログインしてください。")
             else:
                 st.error("そのアカウント名またはユーザーIDは既に使われています。")
-
     st.stop()
 
 if "schedule" not in st.session_state:
@@ -150,11 +159,26 @@ with st.sidebar:
         if verify_account(add_account, add_user, add_pass):
             if add_account not in st.session_state.visible_accounts:
                 st.session_state.visible_accounts.append(add_account)
+                # 永続保存
+                vis_accs = load_visible_accounts()
+                vis_accs[st.session_state.account] = st.session_state.visible_accounts
+                save_visible_accounts(vis_accs)
                 st.success(f"{add_account} を表示アカウントに追加しました")
             else:
                 st.info("すでに追加されています")
         else:
             st.error("アカウント名・ID・パスワードが一致しません")
+
+    st.markdown("### 表示アカウントの削除")
+    acc_to_remove = st.selectbox("削除対象アカウント", options=[a for a in st.session_state.visible_accounts if a != st.session_state.account])
+    if st.button("表示から削除"):
+        if acc_to_remove in st.session_state.visible_accounts:
+            st.session_state.visible_accounts.remove(acc_to_remove)
+            vis_accs = load_visible_accounts()
+            vis_accs[st.session_state.account] = st.session_state.visible_accounts
+            save_visible_accounts(vis_accs)
+            st.success(f"{acc_to_remove} を表示アカウントから削除しました")
+            st.rerun()
 
     st.markdown("---")
     st.markdown("#### アカウント凡例")
@@ -163,9 +187,9 @@ with st.sidebar:
         st.markdown(f"<div style='display:flex;align-items:center;'><div style='width:12px;height:12px;background:{color};margin-right:5px;'></div>{acc}</div>", unsafe_allow_html=True)
 
 view_mode = st.radio("ビュー形式", ["月表示カレンダー", "登録リスト"], horizontal=True, label_visibility="collapsed")
-
 filtered_schedule = st.session_state.schedule[st.session_state.schedule["アカウント"].isin(st.session_state.visible_accounts)]
 
+# カレンダー表示
 if view_mode == "月表示カレンダー":
     events = to_calendar_events(filtered_schedule)
     calendar_result = calendar(
@@ -185,8 +209,7 @@ if view_mode == "月表示カレンダー":
     )
 
     if calendar_result and calendar_result.get("dateClick"):
-        clicked_date_str = calendar_result["dateClick"]["date"]
-        clicked_date = pd.to_datetime(clicked_date_str) + timedelta(hours=9)
+        clicked_date = pd.to_datetime(calendar_result["dateClick"]["date"]) + timedelta(hours=9)
         st.session_state.form_date = clicked_date.date()
 
     if calendar_result and calendar_result.get("eventClick"):
@@ -228,6 +251,7 @@ if view_mode == "月表示カレンダー":
                     st.session_state.calendar_key = str(uuid.uuid4())
                     st.rerun()
 
+# 登録リスト
 if view_mode == "登録リスト":
     if filtered_schedule.empty:
         st.info("まだ予定が登録されていません。")
@@ -235,6 +259,7 @@ if view_mode == "登録リスト":
         df = filtered_schedule.sort_values(["日付", "開始時刻"]).reset_index(drop=True)
         st.dataframe(df.drop("ID", axis=1), use_container_width=True)
 
+# 予定追加
 if st.session_state.form_date:
     st.markdown("---")
     st.subheader(f"{st.session_state.form_date.strftime('%Y年%m月%d日')} の予定を追加")
