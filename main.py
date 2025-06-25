@@ -1,4 +1,3 @@
-# スケジュールアプリ（アカウント登録・ログイン・アカウント承認機能付き）
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, time, timedelta
@@ -6,18 +5,19 @@ from streamlit_calendar import calendar
 import uuid
 import os
 import hashlib
-import random
 
 st.set_page_config(page_title="マルチユーザー対応スケジュール帳", layout="wide")
 
 ACCOUNT_FILE = "accounts.csv"
 DATA_FILE = "schedule_data.csv"
 
-ACCOUNT_COLORS = st.session_state.get("account_colors", {})
-DEFAULT_COLORS = [
-    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b",
-    "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
-]
+ACCOUNT_COLORS = {
+    "個人": "#1f77b4",
+    "会社": "#ff7f0e",
+    "家族": "#2ca02c",
+    "user4": "#d62728",
+    "user5": "#9467bd",
+}
 
 # --- パスワードハッシュ ---
 def hash_password(password):
@@ -40,22 +40,17 @@ def load_schedule():
         df["日付"] = pd.to_datetime(df["日付"]).dt.date
         df["開始時刻"] = pd.to_datetime(df["開始時刻"]).dt.time
         df["終了時刻"] = pd.to_datetime(df["終了時刻"]).dt.time
+
+        # ← ここを追加（重要）
         if "アカウント名" not in df.columns:
             df["アカウント名"] = ""
+
         return df
     else:
         return pd.DataFrame(columns=["ID", "日付", "開始時刻", "終了時刻", "タイトル", "メモ", "アカウント名"])
 
 def save_schedule(df):
     df.to_csv(DATA_FILE, index=False)
-
-# --- 色の割り当て ---
-def assign_color(account):
-    if account not in ACCOUNT_COLORS:
-        used_colors = set(ACCOUNT_COLORS.values())
-        available = [c for c in DEFAULT_COLORS if c not in used_colors]
-        ACCOUNT_COLORS[account] = random.choice(available) if available else "#999999"
-    st.session_state.account_colors = ACCOUNT_COLORS
 
 # --- 初期状態 ---
 if "logged_in" not in st.session_state:
@@ -64,11 +59,6 @@ if "user_id" not in st.session_state:
     st.session_state.user_id = None
 if "known_accounts" not in st.session_state:
     st.session_state.known_accounts = []
-if "account_colors" not in st.session_state:
-    st.session_state.account_colors = {}
-    ACCOUNT_COLORS = {}
-else:
-    ACCOUNT_COLORS = st.session_state.account_colors
 
 # --- ログイン画面 ---
 def login_screen():
@@ -85,9 +75,7 @@ def login_screen():
             if not user.empty:
                 st.session_state.logged_in = True
                 st.session_state.user_id = id_input
-                acct = user.iloc[0]["アカウント名"]
-                assign_color(acct)
-                st.session_state.known_accounts = [acct]
+                st.session_state.known_accounts = user["アカウント名"].iloc[0].split(";")
                 st.success("ログイン成功")
                 st.rerun()
             else:
@@ -110,7 +98,6 @@ def login_screen():
                     }
                     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
                     save_accounts(df)
-                    assign_color(account_name)
                     st.success("アカウントを登録しました。ログインしてください。")
             else:
                 st.warning("すべての項目を入力してください")
@@ -136,50 +123,21 @@ def to_calendar_events(df):
 
 # --- ログイン済みの場合の画面 ---
 def main_screen():
-    with st.sidebar:
-        st.write(f"ログイン中：{st.session_state.user_id}")
-        if st.button("ログアウト"):
-            st.session_state.logged_in = False
-            st.session_state.user_id = None
-            st.session_state.known_accounts = []
-            st.rerun()
-
-        st.markdown("---")
-        st.markdown("### アカウントを追加で承認")
-        with st.form("add_account_form"):
-            new_account = st.text_input("追加するアカウント名")
-            new_id = st.text_input("そのアカウントのユーザーID")
-            new_pw = st.text_input("そのアカウントのパスワード", type="password")
-            if st.form_submit_button("承認（追加）"):
-                accounts_df = load_accounts()
-                match = accounts_df[
-                    (accounts_df["アカウント名"] == new_account) &
-                    (accounts_df["ユーザーID"] == new_id) &
-                    (accounts_df["パスワードハッシュ"] == hash_password(new_pw))
-                ]
-                if not match.empty:
-                    if new_account not in st.session_state.known_accounts:
-                        st.session_state.known_accounts.append(new_account)
-                        assign_color(new_account)
-                        st.success(f"アカウント「{new_account}」を追加しました")
-                        st.rerun()
-                    else:
-                        st.info("すでに追加済みです")
-                else:
-                    st.error("アカウント情報が一致しませんでした")
+    st.sidebar.write(f"ログイン中：{st.session_state.user_id}")
+    if st.sidebar.button("ログアウト"):
+        st.session_state.logged_in = False
+        st.session_state.user_id = None
+        st.session_state.known_accounts = []
+        st.rerun()
 
     df = load_schedule()
     view_mode = st.radio("ビュー形式", ["カレンダー", "リスト"], horizontal=True, label_visibility="collapsed")
 
     st.markdown("### アカウント凡例")
     legend = ""
-    for account in st.session_state.known_accounts:
-        color = ACCOUNT_COLORS.get(account, "#999999")
+    for account, color in ACCOUNT_COLORS.items():
         legend += f'<span style="color:{color}; font-weight:bold; margin-right: 20px;">● {account}</span>'
-    if legend:
-        st.markdown(legend, unsafe_allow_html=True)
-    else:
-        st.info("まだ承認済みアカウントがありません。左メニューから追加してください。")
+    st.markdown(legend, unsafe_allow_html=True)
 
     if view_mode == "カレンダー":
         filtered = df[df["アカウント名"].isin(st.session_state.known_accounts)]
@@ -191,8 +149,6 @@ def main_screen():
                 "locale": "ja",
                 "selectable": True,
                 "editable": False,
-                "eventClick": True,
-                "eventClickHandler": True,
                 "headerToolbar": {
                     "left": "prev,next today",
                     "center": "title",
@@ -200,35 +156,6 @@ def main_screen():
                 },
             },
         )
-
-        if calendar_result and "eventClick" in calendar_result:
-            event_info = calendar_result["eventClick"]
-            if "event" in event_info:
-                clicked_id = event_info["event"]["id"]
-                target = df[df["ID"] == clicked_id]
-                if not target.empty:
-                    row = target.iloc[0]
-                    st.markdown("---")
-                    st.markdown(f"### {row['日付']} の予定編集")
-                    with st.form("edit_event"):
-                        title = st.text_input("タイトル", row["タイトル"])
-                        start_time = st.time_input("開始", row["開始時刻"])
-                        end_time = st.time_input("終了", row["終了時刻"])
-                        memo = st.text_area("メモ", row["メモ"])
-                        account = st.selectbox("アカウント", st.session_state.known_accounts, index=st.session_state.known_accounts.index(row["アカウント名"]))
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if st.form_submit_button("更新"):
-                                df.loc[df["ID"] == clicked_id, ["タイトル", "開始時刻", "終了時刻", "メモ", "アカウント名"]] = [title, start_time, end_time, memo, account]
-                                save_schedule(df)
-                                st.success("予定を更新しました")
-                                st.rerun()
-                        with col2:
-                            if st.form_submit_button("削除"):
-                                df = df[df["ID"] != clicked_id]
-                                save_schedule(df)
-                                st.success("予定を削除しました")
-                                st.rerun()
 
         if calendar_result and calendar_result.get("dateClick"):
             clicked_date = pd.to_datetime(calendar_result["dateClick"]["date"]).date()
