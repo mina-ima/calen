@@ -1,1 +1,5 @@
-{"\u4eca\u4e2d": {"id": "imanaka", "password": "mina-ima"}, "\u7686\u898b\u96fb\u5b50": {"id": "minamidenshi", "password": "mdk-j"}}
+[
+    {"account": "今中", "username": "imanaka", "password": "mina-ima"},
+    {"account": "皆見電子", "username": "minamidenshi", "password": "mdk-j"},
+    {"account": "家族", "username": "family", "password": "imanaka"}
+  ]
