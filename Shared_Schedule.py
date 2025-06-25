@@ -5,25 +5,38 @@ from datetime import datetime, time, timedelta
 from streamlit_calendar import calendar
 import uuid
 import os
+import random
 
 st.set_page_config(page_title="スケジュール帳", layout="wide")
 
 DATA_FILE = "schedule_data.csv"
 ACCOUNT_FILE = "accounts.json"
 
-ACCOUNT_COLORS = {
-    "個人": "#1f77b4",
-    "会社": "#ff7f0e",
-    "家族": "#2ca02c",
-    "user4": "#d62728",
-    "user5": "#9467bd",
-}
+COLOR_POOL = [
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b",
+    "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
+]
+
+ACCOUNT_COLORS = {}
 
 def load_accounts():
+    global ACCOUNT_COLORS
     if os.path.exists(ACCOUNT_FILE):
         with open(ACCOUNT_FILE, 'r') as f:
-            return json.load(f)
+            accounts = json.load(f)
+        assigned_colors = {}
+        used_colors = set()
+        for i, acc in enumerate(accounts):
+            color = COLOR_POOL[i % len(COLOR_POOL)]
+            assigned_colors[acc['account']] = color
+            used_colors.add(color)
+        ACCOUNT_COLORS = assigned_colors
+        return accounts
     return []
+
+def save_accounts(accounts):
+    with open(ACCOUNT_FILE, 'w') as f:
+        json.dump(accounts, f, indent=2, ensure_ascii=False)
 
 def authenticate(username, password):
     accounts = load_accounts()
@@ -38,6 +51,16 @@ def verify_account(account, username, password):
         if acc['account'] == account and acc['username'] == username and acc['password'] == password:
             return True
     return False
+
+def register_account(new_account, new_username, new_password):
+    accounts = load_accounts()
+    for acc in accounts:
+        if acc['account'] == new_account or acc['username'] == new_username:
+            return False
+    accounts.append({"account": new_account, "username": new_username, "password": new_password})
+    save_accounts(accounts)
+    load_accounts()  # 再読み込みして色も更新
+    return True
 
 def load_schedule():
     if os.path.exists(DATA_FILE):
@@ -62,7 +85,7 @@ def to_calendar_events(df):
         color = ACCOUNT_COLORS.get(row["アカウント"], "#000000")
         events.append({
             "id": row["ID"],
-            "title": f"[{row['アカウント']}] {row['タイトル']}",
+            "title": row["タイトル"],
             "start": start_dt.isoformat(),
             "end": end_dt.isoformat(),
             "allDay": False,
@@ -78,21 +101,37 @@ if "logged_in" not in st.session_state:
     st.session_state.account = ""
     st.session_state.visible_accounts = []
 
+accounts_data = load_accounts()
+
 if not st.session_state.logged_in:
     st.title("ログイン")
-    username = st.text_input("ユーザーID")
-    password = st.text_input("パスワード", type="password")
-    if st.button("ログイン"):
-        account = authenticate(username, password)
-        if account:
-            st.session_state.logged_in = True
-            st.session_state.username = username
-            st.session_state.account = account
-            st.session_state.visible_accounts = [account]
-            st.success(f"ようこそ、{account} さん")
-            st.rerun()
-        else:
-            st.error("ユーザー名またはパスワードが間違っています")
+    tab_login, tab_register = st.tabs(["ログイン", "アカウント新規作成"])
+
+    with tab_login:
+        username = st.text_input("ユーザーID")
+        password = st.text_input("パスワード", type="password")
+        if st.button("ログイン"):
+            account = authenticate(username, password)
+            if account:
+                st.session_state.logged_in = True
+                st.session_state.username = username
+                st.session_state.account = account
+                st.session_state.visible_accounts = [account]
+                st.success(f"ようこそ、{account} さん")
+                st.rerun()
+            else:
+                st.error("ユーザー名またはパスワードが間違っています")
+
+    with tab_register:
+        new_account = st.text_input("アカウント名（表示用）")
+        new_username = st.text_input("ユーザーID（ログイン用）")
+        new_password = st.text_input("パスワード（ログイン用）", type="password")
+        if st.button("アカウント作成"):
+            if register_account(new_account, new_username, new_password):
+                st.success("アカウントを作成しました。ログインしてください。")
+            else:
+                st.error("そのアカウント名またはユーザーIDは既に使われています。")
+
     st.stop()
 
 if "schedule" not in st.session_state:
@@ -103,7 +142,7 @@ if "form_date" not in st.session_state:
     st.session_state.form_date = None
 
 with st.sidebar:
-    st.markdown("### 表示するアカウントを追加")
+    st.markdown("### 表示アカウントの追加")
     add_account = st.text_input("アカウント名")
     add_user = st.text_input("ユーザーID", key="add_user")
     add_pass = st.text_input("パスワード", type="password", key="add_pass")
@@ -116,6 +155,12 @@ with st.sidebar:
                 st.info("すでに追加されています")
         else:
             st.error("アカウント名・ID・パスワードが一致しません")
+
+    st.markdown("---")
+    st.markdown("#### アカウント凡例")
+    for acc in st.session_state.visible_accounts:
+        color = ACCOUNT_COLORS.get(acc, "#000000")
+        st.markdown(f"<div style='display:flex;align-items:center;'><div style='width:12px;height:12px;background:{color};margin-right:5px;'></div>{acc}</div>", unsafe_allow_html=True)
 
 view_mode = st.radio("ビュー形式", ["月表示カレンダー", "登録リスト"], horizontal=True, label_visibility="collapsed")
 
