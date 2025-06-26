@@ -19,7 +19,6 @@ COLOR_POOL = [
 ]
 ACCOUNT_COLORS = {}
 
-# パスワードをSHA256でハッシュ化
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -28,9 +27,10 @@ def load_accounts():
     if os.path.exists(ACCOUNT_FILE):
         with open(ACCOUNT_FILE, 'r') as f:
             accounts = json.load(f)
-        assigned_colors = {}
-        for i, acc in enumerate(accounts):
-            assigned_colors[acc['account']] = COLOR_POOL[i % len(COLOR_POOL)]
+        assigned_colors = {
+            acc['account']: COLOR_POOL[i % len(COLOR_POOL)]
+            for i, acc in enumerate(accounts)
+        }
         ACCOUNT_COLORS = assigned_colors
         return accounts
     return []
@@ -38,16 +38,6 @@ def load_accounts():
 def save_accounts(accounts):
     with open(ACCOUNT_FILE, 'w') as f:
         json.dump(accounts, f, indent=2, ensure_ascii=False)
-
-def load_visible_accounts():
-    if os.path.exists(VISIBLE_ACCOUNTS_FILE):
-        with open(VISIBLE_ACCOUNTS_FILE, 'r') as f:
-            return json.load(f)
-    return {}
-
-def save_visible_accounts(data):
-    with open(VISIBLE_ACCOUNTS_FILE, 'w') as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
 
 def authenticate(username, password):
     hashed = hash_password(password)
@@ -73,11 +63,21 @@ def register_account(new_account, new_username, new_password):
     accounts.append({
         "account": new_account,
         "username": new_username,
-        "password": hash_password(new_password)  # ハッシュで保存
+        "password": hash_password(new_password)
     })
     save_accounts(accounts)
     load_accounts()
     return True
+
+def load_visible_accounts():
+    if os.path.exists(VISIBLE_ACCOUNTS_FILE):
+        with open(VISIBLE_ACCOUNTS_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_visible_accounts(data):
+    with open(VISIBLE_ACCOUNTS_FILE, 'w') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 def load_schedule():
     if os.path.exists(DATA_FILE):
@@ -88,8 +88,7 @@ def load_schedule():
         if "アカウント" not in df.columns:
             df["アカウント"] = "default"
         return df
-    else:
-        return pd.DataFrame(columns=["ID", "日付", "開始時刻", "終了時刻", "タイトル", "メモ", "アカウント"])
+    return pd.DataFrame(columns=["ID", "日付", "開始時刻", "終了時刻", "タイトル", "メモ", "アカウント"])
 
 def save_schedule(df):
     df.to_csv(DATA_FILE, index=False)
@@ -111,6 +110,8 @@ def to_calendar_events(df):
             "display": "block",
         })
     return events
+
+# セッション初期化
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
@@ -119,6 +120,7 @@ if "logged_in" not in st.session_state:
 
 accounts_data = load_accounts()
 
+# ログイン画面
 if not st.session_state.logged_in:
     st.title("ログイン")
     tab_login, tab_register = st.tabs(["ログイン", "アカウント新規作成"])
@@ -150,6 +152,7 @@ if not st.session_state.logged_in:
                 st.error("そのアカウント名またはユーザーIDは既に使われています。")
     st.stop()
 
+# データ初期化
 if "schedule" not in st.session_state:
     st.session_state.schedule = load_schedule()
 if "calendar_key" not in st.session_state:
@@ -157,7 +160,14 @@ if "calendar_key" not in st.session_state:
 if "form_date" not in st.session_state:
     st.session_state.form_date = None
 
+# サイドバー（アカウント凡例 → 表示アカウントの追加・削除）
 with st.sidebar:
+    st.markdown("#### アカウント凡例")
+    for acc in st.session_state.visible_accounts:
+        color = ACCOUNT_COLORS.get(acc, "#000000")
+        st.markdown(f"<div style='display:flex;align-items:center;'><div style='width:12px;height:12px;background:{color};margin-right:5px;'></div>{acc}</div>", unsafe_allow_html=True)
+
+    st.markdown("---")
     st.markdown("### 表示アカウントの追加")
     add_account = st.text_input("アカウント名")
     add_user = st.text_input("ユーザーID", key="add_user")
@@ -188,78 +198,81 @@ with st.sidebar:
             st.session_state.calendar_key = str(uuid.uuid4())
             st.success(f"{acc_to_remove} を表示アカウントから削除しました")
             st.rerun()
-
-    st.markdown("---")
-    st.markdown("#### アカウント凡例")
-    for acc in st.session_state.visible_accounts:
-        color = ACCOUNT_COLORS.get(acc, "#000000")
-        st.markdown(f"<div style='display:flex;align-items:center;'><div style='width:12px;height:12px;background:{color};margin-right:5px;'></div>{acc}</div>", unsafe_allow_html=True)
-
-view_mode = st.radio("ビュー形式", ["月表示カレンダー", "登録リスト"], horizontal=True, label_visibility="collapsed")
-filtered_schedule = st.session_state.schedule[st.session_state.schedule["アカウント"].isin(st.session_state.visible_accounts)]
-
-if view_mode == "月表示カレンダー":
-    events = to_calendar_events(filtered_schedule)
-    calendar_result = calendar(
-        events=events,
-        options={
-            "initialView": "dayGridMonth",
-            "locale": "ja",
-            "selectable": True,
-            "editable": False,
-            "headerToolbar": {
-                "left": "prev,next today",
-                "center": "title",
-                "right": "dayGridMonth,timeGridWeek,listWeek"
-            },
+            # カレンダーの描画（最初に表示）
+events = to_calendar_events(
+    st.session_state.schedule[
+        st.session_state.schedule["アカウント"].isin(st.session_state.visible_accounts)
+    ]
+)
+calendar_result = calendar(
+    events=events,
+    options={
+        "initialView": "dayGridMonth",
+        "locale": "ja",
+        "selectable": True,
+        "editable": False,
+        "headerToolbar": {
+            "left": "prev,next today",
+            "center": "title",
+            "right": "dayGridMonth,timeGridWeek,listWeek"
         },
-        key=st.session_state.calendar_key
-    )
+    },
+    key=st.session_state.calendar_key
+)
 
-    if calendar_result and calendar_result.get("dateClick"):
-        clicked_date = pd.to_datetime(calendar_result["dateClick"]["date"]) + timedelta(hours=9)
-        st.session_state.form_date = clicked_date.date()
+# カレンダークリックイベント処理
+if calendar_result and calendar_result.get("dateClick"):
+    clicked_date = pd.to_datetime(calendar_result["dateClick"]["date"]) + timedelta(hours=9)
+    st.session_state.form_date = clicked_date.date()
 
-    if calendar_result and calendar_result.get("eventClick"):
-        clicked_id = calendar_result["eventClick"]["event"]["id"]
-        df = st.session_state.schedule
-        selected = df[df["ID"] == clicked_id]
+if calendar_result and calendar_result.get("eventClick"):
+    clicked_id = calendar_result["eventClick"]["event"]["id"]
+    df = st.session_state.schedule
+    selected = df[df["ID"] == clicked_id]
 
-        if not selected.empty:
-            row = selected.iloc[0]
-            editable = (row["アカウント"] in st.session_state.visible_accounts)
+    if not selected.empty:
+        row = selected.iloc[0]
+        editable = (row["アカウント"] in st.session_state.visible_accounts)
 
-            st.markdown("---")
-            st.subheader(f"予定詳細 ({'編集可能' if editable else '閲覧のみ'})")
-            with st.form("edit_schedule"):
-                st.text_input("アカウント", value=row["アカウント"], disabled=True)
-                new_title = st.text_input("タイトル", value=row["タイトル"], disabled=not editable)
-                new_start = st.time_input("開始時刻", value=row["開始時刻"], disabled=not editable)
-                new_end = st.time_input("終了時刻", value=row["終了時刻"], disabled=not editable)
-                new_memo = st.text_area("メモ", value=row["メモ"], disabled=not editable)
-                col1, col2 = st.columns(2)
-                with col1:
-                    submitted = st.form_submit_button("更新", disabled=not editable)
-                with col2:
-                    deleted = st.form_submit_button("削除", disabled=not editable)
+        st.markdown("---")
+        st.subheader(f"予定詳細 ({'編集可能' if editable else '閲覧のみ'})")
+        with st.form("edit_schedule"):
+            st.text_input("アカウント", value=row["アカウント"], disabled=True)
+            new_title = st.text_input("タイトル", value=row["タイトル"], disabled=not editable)
+            new_start = st.time_input("開始時刻", value=row["開始時刻"], disabled=not editable)
+            new_end = st.time_input("終了時刻", value=row["終了時刻"], disabled=not editable)
+            new_memo = st.text_area("メモ", value=row["メモ"], disabled=not editable)
+            col1, col2 = st.columns(2)
+            with col1:
+                submitted = st.form_submit_button("更新", disabled=not editable)
+            with col2:
+                deleted = st.form_submit_button("削除", disabled=not editable)
 
-                if submitted:
-                    idx = df[df["ID"] == clicked_id].index[0]
-                    st.session_state.schedule.at[idx, "タイトル"] = new_title
-                    st.session_state.schedule.at[idx, "開始時刻"] = new_start
-                    st.session_state.schedule.at[idx, "終了時刻"] = new_end
-                    st.session_state.schedule.at[idx, "メモ"] = new_memo
-                    save_schedule(st.session_state.schedule)
-                    st.success("予定を更新しました")
-                    st.rerun()
-                if deleted:
-                    st.session_state.schedule = df[df["ID"] != clicked_id].reset_index(drop=True)
-                    save_schedule(st.session_state.schedule)
-                    st.success("予定を削除しました")
-                    st.session_state.calendar_key = str(uuid.uuid4())
-                    st.rerun()
+            if submitted:
+                idx = df[df["ID"] == clicked_id].index[0]
+                st.session_state.schedule.at[idx, "タイトル"] = new_title
+                st.session_state.schedule.at[idx, "開始時刻"] = new_start
+                st.session_state.schedule.at[idx, "終了時刻"] = new_end
+                st.session_state.schedule.at[idx, "メモ"] = new_memo
+                save_schedule(st.session_state.schedule)
+                st.success("予定を更新しました")
+                st.rerun()
+            if deleted:
+                st.session_state.schedule = df[df["ID"] != clicked_id].reset_index(drop=True)
+                save_schedule(st.session_state.schedule)
+                st.success("予定を削除しました")
+                st.session_state.calendar_key = str(uuid.uuid4())
+                st.rerun()
 
-elif view_mode == "登録リスト":
+# 📌 カレンダーの下に切り替えUI
+st.markdown("---")
+view_mode = st.radio("表示形式を選択", ["登録リスト", "月表示カレンダー"], horizontal=True)
+
+# リスト表示（編集対応）
+if view_mode == "登録リスト":
+    filtered_schedule = st.session_state.schedule[
+        st.session_state.schedule["アカウント"].isin(st.session_state.visible_accounts)
+    ]
     if filtered_schedule.empty:
         st.info("まだ予定が登録されていません。")
     else:
@@ -299,6 +312,7 @@ elif view_mode == "登録リスト":
                         st.session_state.calendar_key = str(uuid.uuid4())
                         st.rerun()
 
+# 予定追加
 if st.session_state.form_date:
     st.markdown("---")
     st.subheader(f"{st.session_state.form_date.strftime('%Y年%m月%d日')} の予定を追加")
