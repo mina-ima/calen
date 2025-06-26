@@ -122,11 +122,8 @@ if not st.session_state.logged_in:
                 st.session_state.logged_in = True
                 st.session_state.username = username
                 st.session_state.account = account
-
-                # 表示アカウントの永続設定読み込み
                 vis_accs = load_visible_accounts()
                 st.session_state.visible_accounts = vis_accs.get(account, [account])
-
                 st.success(f"ようこそ、{account} さん")
                 st.rerun()
             else:
@@ -159,16 +156,17 @@ with st.sidebar:
         if verify_account(add_account, add_user, add_pass):
             if add_account not in st.session_state.visible_accounts:
                 st.session_state.visible_accounts.append(add_account)
-                # 永続保存
                 vis_accs = load_visible_accounts()
                 vis_accs[st.session_state.account] = st.session_state.visible_accounts
                 save_visible_accounts(vis_accs)
+                st.session_state.calendar_key = str(uuid.uuid4())  # ✅ 修正：再描画トリガー
                 st.success(f"{add_account} を表示アカウントに追加しました")
+                st.rerun()
             else:
                 st.info("すでに追加されています")
         else:
             st.error("アカウント名・ID・パスワードが一致しません")
-
+    
     st.markdown("### 表示アカウントの削除")
     acc_to_remove = st.selectbox("削除対象アカウント", options=[a for a in st.session_state.visible_accounts if a != st.session_state.account])
     if st.button("表示から削除"):
@@ -177,6 +175,7 @@ with st.sidebar:
             vis_accs = load_visible_accounts()
             vis_accs[st.session_state.account] = st.session_state.visible_accounts
             save_visible_accounts(vis_accs)
+            st.session_state.calendar_key = str(uuid.uuid4())  # ✅ 修正：再描画トリガー
             st.success(f"{acc_to_remove} を表示アカウントから削除しました")
             st.rerun()
 
@@ -189,7 +188,6 @@ with st.sidebar:
 view_mode = st.radio("ビュー形式", ["月表示カレンダー", "登録リスト"], horizontal=True, label_visibility="collapsed")
 filtered_schedule = st.session_state.schedule[st.session_state.schedule["アカウント"].isin(st.session_state.visible_accounts)]
 
-# カレンダー表示
 if view_mode == "月表示カレンダー":
     events = to_calendar_events(filtered_schedule)
     calendar_result = calendar(
@@ -251,7 +249,6 @@ if view_mode == "月表示カレンダー":
                     st.session_state.calendar_key = str(uuid.uuid4())
                     st.rerun()
 
-# 登録リスト
 if view_mode == "登録リスト":
     if filtered_schedule.empty:
         st.info("まだ予定が登録されていません。")
@@ -259,7 +256,6 @@ if view_mode == "登録リスト":
         df = filtered_schedule.sort_values(["日付", "開始時刻"]).reset_index(drop=True)
         st.dataframe(df.drop("ID", axis=1), use_container_width=True)
 
-# 予定追加
 if st.session_state.form_date:
     st.markdown("---")
     st.subheader(f"{st.session_state.form_date.strftime('%Y年%m月%d日')} の予定を追加")
