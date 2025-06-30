@@ -1,17 +1,17 @@
 [
-    {
-      "account": "今中",
-      "username": "imanaka",
-      "password": "26e9323cf73303b953ad3b08e0c545c0b60e1d7047149d73ba59805dc4f53866"
-    },
-    {
-      "account": "皆見電子",
-      "username": "minamidenshi",
-      "password": "b80c43a099a231ec260600b0a11c6facf40b16ebcd4f5dcc4b7e4d7e88508924"
-    },
-    {
-      "account": "家族",
-      "username": "family",
-      "password": "4ea140588150773ce3aace786aeef7f4049ce100fa649c94fbbddb960f1da942"
-    }
-  ]
+  {
+    "account": "今中",
+    "username": "imanaka",
+    "password": "26e9323cf73303b953ad3b08e0c545c0b60e1d7047149d73ba59805dc4f53866"
+  },
+  {
+    "account": "皆見電子",
+    "username": "minamidenshi",
+    "password": "b80c43a099a231ec260600b0a11c6facf40b16ebcd4f5dcc4b7e4d7e88508924"
+  },
+  {
+    "account": "家族",
+    "username": "family",
+    "password": "4ea140588150773ce3aace786aeef7f4049ce100fa649c94fbbddb960f1da942"
+  }
+]
