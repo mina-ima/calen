@@ -1,5 +1,3 @@
-# スマート＆key重複修正済み版スケジュール帳（UI再配置済み）
-
 import streamlit as st
 import pandas as pd
 import json
@@ -99,7 +97,8 @@ for key, default in {
     "visible_accounts": [],
     "schedule": pd.DataFrame(columns=["ID", "日付", "開始時刻", "終了時刻", "タイトル", "メモ", "アカウント"]),
     "calendar_key": str(uuid.uuid4()),
-    "form_date": None
+    "form_date": None,
+    "eventClick": None
 }.items():
     st.session_state.setdefault(key, default)
 
@@ -136,8 +135,7 @@ if not st.session_state.logged_in:
             else:
                 st.error("アカウント名またはユーザーIDは既に使われています")
     st.stop()
-
-# --- データ読み込み ---
+    # --- データ読み込み ---
 if st.session_state.schedule.empty:
     st.session_state.schedule = load_schedule()
 
@@ -147,12 +145,16 @@ visible_df = st.session_state.schedule[
 
 # --- サイドバー ---
 with st.sidebar:
-    st.markdown("#### アカウント凡例")
+    # ← アカウント凡例（見出しなしで最上部に表示）
     for acc in st.session_state.visible_accounts:
         color = ACCOUNT_COLORS.get(acc, "#000000")
-        st.markdown(f"<div style='display:flex;align-items:center;'><div style='width:12px;height:12px;background:{color};margin-right:5px;'></div>{acc}</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='display:flex;align-items:center;'><div style='width:12px;height:12px;background:{color};margin-right:5px;'></div>{acc}</div>",
+            unsafe_allow_html=True,
+        )
 
-    if st.session_state.form_date:
+    # --- 予定追加フォーム（eventClickがないときだけ表示）---
+    if st.session_state.form_date and not st.session_state.eventClick:
         st.markdown("---")
         st.subheader(f"{st.session_state.form_date.strftime('%Y年%m月%d日')} の予定を追加")
         with st.form("add_schedule"):
@@ -174,11 +176,11 @@ with st.sidebar:
                         "終了時刻": end_time,
                         "タイトル": title.strip(),
                         "メモ": memo.strip(),
-                        "アカウント": account
+                        "アカウント": account,
                     }
                     st.session_state.schedule = pd.concat(
                         [st.session_state.schedule, pd.DataFrame([new_row])],
-                        ignore_index=True
+                        ignore_index=True,
                     )
                     save_schedule(st.session_state.schedule)
                     st.session_state.form_date = None
@@ -186,7 +188,8 @@ with st.sidebar:
                     st.success("予定を追加しました")
                     st.rerun()
 
-    if "eventClick" in st.session_state:
+    # --- 予定編集フォーム（eventClickがあるときだけ表示）---
+    if st.session_state.eventClick:
         clicked_id = st.session_state["eventClick"]
         df = st.session_state.schedule
         selected = df[df["ID"] == clicked_id]
@@ -204,13 +207,17 @@ with st.sidebar:
                     idx = df[df["ID"] == clicked_id].index[0]
                     st.session_state.schedule.loc[idx, ["タイトル", "開始時刻", "終了時刻", "メモ"]] = [new_title, new_start, new_end, new_memo]
                     save_schedule(st.session_state.schedule)
+                    st.session_state.form_date = None
+                    st.session_state.eventClick = None
                     st.success("予定を更新しました")
                     st.rerun()
                 if col2.form_submit_button("削除", disabled=not editable):
                     st.session_state.schedule = df[df["ID"] != clicked_id].reset_index(drop=True)
                     save_schedule(st.session_state.schedule)
-                    st.success("予定を削除しました")
+                    st.session_state.form_date = None
+                    st.session_state.eventClick = None
                     st.session_state.calendar_key = str(uuid.uuid4())
+                    st.success("予定を削除しました")
                     st.rerun()
 
 # --- カレンダー表示 ---
@@ -235,42 +242,43 @@ if calendar_result:
     if calendar_result.get("dateClick"):
         clicked_date = pd.to_datetime(calendar_result["dateClick"]["date"]) + timedelta(hours=9)
         st.session_state.form_date = clicked_date.date()
+        st.session_state.eventClick = None
     if calendar_result.get("eventClick"):
         st.session_state["eventClick"] = calendar_result["eventClick"]["event"]["id"]
+        st.session_state.form_date = None
         st.rerun()
 
 # --- アカウント追加・削除 ---
-st.markdown("---")
-st.subheader("表示アカウントの管理")
+with st.expander("表示アカウントの管理"):
+    st.markdown("### 表示アカウントの追加")
+    add_account = st.text_input("アカウント名", key="add_account")
+    add_user = st.text_input("ユーザーID", key="add_user")
+    add_pass = st.text_input("パスワード", type="password", key="add_pass")
+    if st.button("表示アカウントに追加"):
+        if verify_account(add_account, add_user, add_pass, accounts):
+            if add_account not in st.session_state.visible_accounts:
+                st.session_state.visible_accounts.append(add_account)
+                vis_accs = load_json(VISIBLE_ACCOUNTS_FILE, {})
+                vis_accs[st.session_state.account] = st.session_state.visible_accounts
+                save_json(VISIBLE_ACCOUNTS_FILE, vis_accs)
+                st.session_state.calendar_key = str(uuid.uuid4())
+                st.success(f"{add_account} を表示アカウントに追加しました")
+                st.rerun()
+            else:
+                st.info("すでに追加されています")
+        else:
+            st.error("アカウント名・ID・パスワードが一致しません")
 
-st.markdown("### 表示アカウントの追加")
-add_account = st.text_input("アカウント名", key="add_account")
-add_user = st.text_input("ユーザーID", key="add_user")
-add_pass = st.text_input("パスワード", type="password", key="add_pass")
-if st.button("表示アカウントに追加"):
-    if verify_account(add_account, add_user, add_pass, accounts):
-        if add_account not in st.session_state.visible_accounts:
-            st.session_state.visible_accounts.append(add_account)
+    st.markdown("### 表示アカウントの削除")
+    options = [a for a in st.session_state.visible_accounts if a != st.session_state.account]
+    if options:
+        acc_to_remove = st.selectbox("削除対象アカウント", options=options, key="remove_acc")
+        if st.button("表示から削除"):
+            st.session_state.visible_accounts.remove(acc_to_remove)
             vis_accs = load_json(VISIBLE_ACCOUNTS_FILE, {})
             vis_accs[st.session_state.account] = st.session_state.visible_accounts
             save_json(VISIBLE_ACCOUNTS_FILE, vis_accs)
             st.session_state.calendar_key = str(uuid.uuid4())
-            st.success(f"{add_account} を表示アカウントに追加しました")
+            st.success(f"{acc_to_remove} を表示アカウントから削除しました")
             st.rerun()
-        else:
-            st.info("すでに追加されています")
-    else:
-        st.error("アカウント名・ID・パスワードが一致しません")
-
-st.markdown("### 表示アカウントの削除")
-options = [a for a in st.session_state.visible_accounts if a != st.session_state.account]
-if options:
-    acc_to_remove = st.selectbox("削除対象アカウント", options=options, key="remove_acc")
-    if st.button("表示から削除"):
-        st.session_state.visible_accounts.remove(acc_to_remove)
-        vis_accs = load_json(VISIBLE_ACCOUNTS_FILE, {})
-        vis_accs[st.session_state.account] = st.session_state.visible_accounts
-        save_json(VISIBLE_ACCOUNTS_FILE, vis_accs)
-        st.session_state.calendar_key = str(uuid.uuid4())
-        st.success(f"{acc_to_remove} を表示アカウントから削除しました")
-        st.rerun()
+            
