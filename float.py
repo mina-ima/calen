@@ -221,6 +221,7 @@ with st.sidebar:
                     st.rerun()
 
 # --- カレンダー表示 ---
+# --- カレンダー表示 ---
 events = to_calendar_events(visible_df, ACCOUNT_COLORS)
 calendar_result = calendar(
     events=events,
@@ -238,11 +239,14 @@ calendar_result = calendar(
     key=st.session_state.calendar_key
 )
 
+# 🔽 🔧 ここを修正 🔧 🔽
 if calendar_result:
     if calendar_result.get("dateClick"):
         clicked_date = pd.to_datetime(calendar_result["dateClick"]["date"]) + timedelta(hours=9)
         st.session_state.form_date = clicked_date.date()
         st.session_state.eventClick = None
+        st.rerun()
+
     if calendar_result.get("eventClick"):
         st.session_state["eventClick"] = calendar_result["eventClick"]["event"]["id"]
         st.session_state.form_date = None
